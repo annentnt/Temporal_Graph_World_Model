@@ -1,0 +1,145 @@
+HƯỚNG DẪN SỬ DỤNG MÔ HÌNH T-GWM (TEMPORAL GRAPH WORLD MODEL)
+=============================================================
+
+1. NGUYÊN TẮC CHUNG
+---------------------
+
+Mọi lệnh trong tài liệu này phải được chạy từ thư mục gốc T-GWM, tức
+thư mục chứa train.py và evaluate.py.
+
+Kích hoạt môi trường ảo trước khi chạy. Ví dụ trên Windows PowerShell:
+
+cd <duong-dan-den-T-GWM>
+.\.venv\Scripts\Activate.ps1
+
+Thay <duong-dan-den-T-GWM> bằng đường dẫn thực tế trên máy.
+
+2. KIỂM TRA DỮ LIỆU ĐẦU VÀO
+-----------------------------
+
+data/ đã có sẵn 5 bộ dữ liệu: ICEWS14, ICEWS14s, ICEWS18, ICEWS05-15,
+GDELT. Đảm bảo mỗi thư mục con chứa (ví dụ với ICEWS14, các bộ khác
+tương tự):
+
+data/ICEWS14/
+  - train.txt
+  - valid.txt
+  - test.txt
+  - entity2id.txt
+  - relation2id.txt
+
+Mỗi dòng trong train.txt/valid.txt/test.txt có định dạng:
+head \t relation \t tail \t time_id
+
+3. TIỀN XỬ LÝ DỮ LIỆU VÀ TẠO EMBEDDING VĂN BẢN
+------------------------------------------------
+
+Chạy lệnh sau với GPU (ví dụ với ICEWS14):
+
+python utils/preprocess_temporal_data.py --data_dir data/ICEWS14 --output_dir data-processed/icews14 --pretrained_model bert-base-uncased --text_device cuda
+
+Nếu không có GPU, thay --text_device cuda bằng --text_device cpu.
+
+Sau khi hoàn tất, data-processed/icews14 phải có ít nhất:
+- entity2id.json
+- relation2id.json
+- entity_text.json
+- relation_text.json
+- time2id.json
+- train_quadruples.pt
+- valid_quadruples.pt
+- test_quadruples.pt
+- ground_truth.json
+- temporal_metadata.json
+- entity_text_embeddings.pt
+- relation_text_embeddings.pt
+
+Nếu BERT gây thiếu bộ nhớ, thêm --text_batch_size với giá trị nhỏ hơn
+(mặc định 128).
+
+Lặp lại lệnh trên cho từng bộ dữ liệu còn lại, đổi ICEWS14 -> ICEWS14s /
+ICEWS18 / ICEWS05-15 / GDELT và icews14 -> icews14s / icews18 /
+icews05-15 / gdelt tương ứng (xem bảng đường dẫn ở mục 7).
+
+4. HUẤN LUYỆN STRUCTURAL PRIORS (COMPGCN)
+--------------------------------------------
+
+Trước khi huấn luyện mô hình đầy đủ, cần tạo embedding cấu trúc ban đầu
+bằng CompGCN trên từng snapshot thời gian:
+
+python train_temporal_structural_priors.py --processed_dir data-processed/icews14 --dim 200 --layers 1 --epochs 30
+
+Kết quả là 2 tệp:
+
+data-processed/icews14/structural_entities.pt
+data-processed/icews14/structural_relations.pt
+
+Giá trị --dim phải khớp với struct_emb_dim trong tệp cấu hình tương ứng
+(mặc định 200). Lặp lại cho từng bộ dữ liệu còn lại tương tự mục 3.
+
+5. HUẤN LUYỆN MÔ HÌNH ĐẦY ĐỦ
+-------------------------------
+
+Chạy mô hình hợp nhất văn bản và cấu trúc:
+
+python train.py --config configs/icews14-temporal.yaml
+
+Thêm --resume để huấn luyện tiếp từ best_checkpoint.pt nếu đã có:
+
+python train.py --config configs/icews14-temporal.yaml --resume
+
+Các tệp đầu ra chính:
+- output/icews14-temporal/best_checkpoint.pt
+- output/icews14-temporal/latest_checkpoint.pt
+- output/icews14-temporal/training_log.json
+- output/icews14-temporal/training_config.json
+
+Không đóng terminal trong khi huấn luyện. Thời gian chạy phụ thuộc GPU,
+kích thước batch và số epoch; early stopping (mặc định patience=5) có
+thể kết thúc trước num_epochs=150.
+
+6. ĐÁNH GIÁ MÔ HÌNH ĐẦY ĐỦ
+-----------------------------
+
+Sau khi huấn luyện xong, chạy:
+
+python evaluate.py --config configs/icews14-temporal.yaml
+
+Chương trình ưu tiên tải output/icews14-temporal/best_checkpoint.pt;
+nếu không có sẽ thử latest_checkpoint.pt. Kết quả đánh giá tập kiểm thử
+được lưu tại:
+
+- output/icews14-temporal/evaluation_results.json
+- output/icews14-temporal/predictions_test.jsonl
+
+7. BẢNG ĐƯỜNG DẪN CHO CÁC BỘ DỮ LIỆU KHÁC
+---------------------------------------------
+
+Thay ICEWS14/icews14 trong các lệnh ở mục 3-6 bằng thông tin tương ứng:
+
+Bo du lieu   | Thu muc data/  | data-processed/    | Tep cau hinh
+-------------|----------------|---------------------|---------------------------------------
+ICEWS14      | ICEWS14        | icews14             | configs/icews14-temporal.yaml
+ICEWS14s     | ICEWS14s       | icews14s            | configs/icews14s-temporal.yaml
+ICEWS18      | ICEWS18        | icews18             | configs/icews18-temporal.yaml
+ICEWS05-15   | ICEWS05-15     | icews05-15          | configs/icews05-15-temporal.yaml
+GDELT        | GDELT          | gdelt               | configs/gdelt-temporal.yaml
+
+output_dir tương ứng nằm bên trong mỗi tệp cấu hình (mặc định
+output/<ten-bo-du-lieu>-temporal).
+
+configs/ còn có thêm một số cấu hình biến thể dùng cho thực nghiệm ablation
+(ví dụ icews14-temporal-no-text.yaml tắt nhánh văn bản,
+icews14-temporal-dimmatched.yaml giảm fusion_dim). Các biến thể này dùng
+chung bước tiền xử lý và structural priors với bộ dữ liệu gốc, chỉ cần
+chạy lại train.py/evaluate.py với tệp cấu hình tương ứng.
+
+8. TRỰC QUAN HÓA QUÁ TRÌNH HUẤN LUYỆN (TÙY CHỌN)
+----------------------------------------------------
+
+python visualize_training.py --log_path output/icews14-temporal/training_log.json --output training_curves.png
+
+9. KIỂM THỬ (TÙY CHỌN)
+-------------------------
+
+python -m unittest tests.test_model_dataset -v

@@ -1,0 +1,161 @@
+HƯỚNG DẪN CÀI ĐẶT MÔ HÌNH T-GWM (TEMPORAL GRAPH WORLD MODEL)
+=============================================================
+
+1. PHẠM VI
+-----------
+
+Tài liệu này hướng dẫn chuẩn bị môi trường local để chạy mô hình Temporal
+Graph World Model (T-GWM) cho bài toán hoàn thiện đồ thị tri thức thời
+gian (Temporal Knowledge Graph Completion) theo hướng dự báo
+(extrapolation).
+
+2. CẤU HÌNH KHUYẾN NGHỊ
+------------------------
+
+Phần cứng:
+- CPU 64-bit, tối thiểu 4 nhân.
+- RAM tối thiểu 16 GB; khuyến nghị 32 GB (một số bộ dữ liệu như
+  ICEWS18/GDELT có số thực thể và số mốc thời gian lớn).
+- GPU NVIDIA hỗ trợ CUDA; khuyến nghị tối thiểu 12-16 GB VRAM.
+- Dung lượng đĩa trống tối thiểu 20 GB cho dữ liệu, embedding BERT,
+  checkpoint và kết quả (nhiều hơn nếu huấn luyện cả 5 bộ dữ liệu).
+
+Phần mềm:
+- Windows 10/11 hoặc Linux 64-bit.
+- Python 3.9 trở lên.
+- pip đi kèm Python.
+- Trình điều khiển NVIDIA phù hợp nếu huấn luyện bằng GPU.
+- Có thể dùng Visual Studio Code, PyCharm hoặc terminal.
+
+Lưu ý: Có thể chạy bằng CPU, nhưng tiền xử lý BERT và huấn luyện sẽ chậm
+hơn đáng kể, đặc biệt với graph world-state evolver. Khi dùng CPU cần đổi
+device trong tệp cấu hình và tham số dòng lệnh như hướng dẫn bên dưới.
+
+3. CẤU TRÚC THƯ MỤC
+--------------------
+
+Sao chép toàn bộ thư mục T-GWM vào máy local và giữ nguyên cấu trúc. Thư
+mục tối thiểu cần có:
+
+T-GWM/
+  configs/
+  data/
+    ICEWS14/
+    ICEWS14s/
+    ICEWS18/
+    ICEWS05-15/
+    GDELT/
+  model/
+  tests/
+  utils/
+  train.py
+  evaluate.py
+  train_temporal_structural_priors.py
+  visualize_training.py
+  requirements.txt
+
+4. TẠO MÔI TRƯỜNG PYTHON
+-------------------------
+
+Mở PowerShell hoặc terminal tại thư mục chứa T-GWM, sau đó chuyển vào
+thư mục mã nguồn:
+
+cd T-GWM
+
+Tạo môi trường ảo:
+
+python -m venv .venv
+
+Kích hoạt trên Windows PowerShell:
+
+.\.venv\Scripts\Activate.ps1
+
+Nếu PowerShell chặn script, chạy lệnh sau một lần trong cửa sổ hiện tại
+rồi kích hoạt lại:
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+Kích hoạt trên Windows Command Prompt:
+
+.venv\Scripts\activate.bat
+
+Kích hoạt trên Linux:
+
+source .venv/bin/activate
+
+Cập nhật công cụ cài gói:
+
+python -m pip install --upgrade pip setuptools wheel
+
+5. CÀI ĐẶT THƯ VIỆN
+--------------------
+
+Cài các thư viện được liệt kê trong requirements.txt:
+
+python -m pip install -r requirements.txt
+
+Hoặc cài trực tiếp:
+
+python -m pip install torch transformers tqdm PyYAML numpy matplotlib
+
+Đối với GPU NVIDIA, nên cài bản PyTorch có CUDA theo lệnh được cung cấp
+tại trang cài đặt chính thức của PyTorch, phù hợp với hệ điều hành và
+trình điều khiển trên máy. Không cần cài CUDA Toolkit riêng nếu gói
+PyTorch đã bao gồm CUDA runtime phù hợp.
+
+6. KIỂM TRA MÔI TRƯỜNG
+------------------------
+
+Kiểm tra phiên bản Python:
+
+python --version
+
+Kiểm tra import thư viện:
+
+python -c "import torch, transformers, yaml, numpy, tqdm, matplotlib; print('Thu vien hop le')"
+
+Kiểm tra GPU:
+
+python -c "import torch; print('CUDA:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'Khong co')"
+
+Nếu CUDA trả về False, mô hình vẫn có thể chạy bằng CPU sau khi đổi
+device: cuda thành device: cpu trong tệp cấu hình. Nếu muốn dùng GPU,
+cần kiểm tra lại trình điều khiển NVIDIA và phiên bản PyTorch đã cài.
+
+7. TẢI MÔ HÌNH BERT
+---------------------
+
+Bước tiền xử lý sử dụng bert-base-uncased từ Hugging Face để mã hoá tên
+thực thể/quan hệ. Ở lần chạy đầu tiên, transformers sẽ tự tải tokenizer
+và trọng số mô hình, vì vậy máy cần kết nối Internet. Các lần sau sẽ
+dùng bộ nhớ đệm local.
+
+8. ĐIỀU CHỈNH THEO BỘ NHỚ GPU
+-------------------------------
+
+Cấu hình mặc định trong configs/*.yaml sử dụng:
+- batch_size: 512
+- eval_batch_size: 64
+- candidate_batch_size: 1024
+- fusion_dim: 512
+- struct_emb_dim: 200
+- device: cuda
+
+Nếu xuất hiện lỗi CUDA out of memory, giảm batch_size và eval_batch_size
+lần lượt xuống 256, 128 hoặc 64. candidate_batch_size có thể giảm để
+giới hạn bộ nhớ khi mã hoá ứng viên. Việc giảm batch không yêu cầu thay
+đổi kiến trúc, nhưng có thể làm thay đổi động lực huấn luyện và thời
+gian chạy.
+
+Lưu ý riêng cho T-GWM: mỗi bước huấn luyện/đánh giá phải mã hoá lại toàn
+bộ tập thực thể làm ứng viên cho từng mốc thời gian trong batch, nên
+những bộ dữ liệu có nhiều thực thể (ICEWS18) hoặc nhiều mốc thời gian
+(ICEWS05-15, GDELT) dễ tốn bộ nhớ hơn ICEWS14/ICEWS14s ở cùng
+batch_size. Nên hạ batch_size trước cho các bộ này nếu gặp OOM.
+
+9. HOÀN TẤT
+-------------
+
+Sau khi các lệnh kiểm tra thành công, môi trường đã sẵn sàng. Tiếp tục
+theo HuongDanSuDung.txt để tiền xử lý dữ liệu, huấn luyện structural
+priors, huấn luyện và đánh giá mô hình.
